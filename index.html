@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NM Automations - Lead AI Dashboard</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "@google/generative-ai": "https://esm.run/@google/generative-ai"
+        }
+      }
+    </script>
+
+    <style>
+        :root { --primary: #1a73e8; --bg: #f8f9fa; --text: #202124; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: auto; }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .stat-card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); text-align: center; }
+        .stat-card h3 { margin: 0; color: var(--primary); font-size: 2rem; }
+        table { width: 100%; border-collapse: collapse; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        th, td { padding: 15px; text-align: right; border-bottom: 1px solid #eee; }
+        th { background: #f1f3f4; font-weight: 600; }
+        tr:hover { background: #f8f9fa; }
+        .ai-badge { background: #e8f0fe; color: #1967d2; padding: 4px 8px; border-radius: 6px; font-size: 0.85rem; font-weight: bold; }
+        .btn-ai { background: var(--primary); color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; }
+        .btn-ai:hover { opacity: 0.9; }
+        #loading { text-align: center; padding: 50px; display: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>לוח ניהול לידים חכם</h1>
+        <div id="user-info">שלום, ניצן 👋</div>
+    </header>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <p>סה"כ לידים</p>
+            <h3 id="totalLeads">0</h3>
+        </div>
+        <div class="stat-card">
+            <p>לידים מהיום</p>
+            <h3 id="todayLeads">0</h3>
+        </div>
+    </div>
+
+    <div id="loading">טוען נתונים...</div>
+
+    <table id="mainTable">
+        <thead>
+            <tr>
+                <th>תאריך</th>
+                <th>שם הלקוח</th>
+                <th>טלפון</th>
+                <th>אתגר מרכזי</th>
+                <th>תובנת AI (Gemini)</th>
+                <th>פעולות</th>
+            </tr>
+        </thead>
+        <tbody id="leadsTableBody">
+            </tbody>
+    </table>
+</div>
+
+<script type="module">
+    import { GoogleGenerativeAI } from "@google/generative-ai";
+
+    // --- 1. הגדרות מפתחות (מלא את הפרטים שלך) ---
+    const SUPABASE_URL = 'הכנס_כאן_את_URL_הפרויקט_מ-Supabase';
+    const SUPABASE_KEY = 'הכנס_כאן_את_anon_key_מ-Supabase';
+    const GEMINI_API_KEY = 'הכנס_כאן_את_API_KEY_מ-Google_AI_Studio';
+
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+
+    // --- 2. אבטחה בסיסית (סיסמה) ---
+    const password = prompt("הזן סיסמת מנהל:");
+    if (password !== "1234") { // שנה לסיסמה חזקה יותר
+        alert("גישה נדחתה");
+        window.location.href = "index.html";
+    } else {
+        init();
+    }
+
+    async function init() {
+        document.getElementById('loading').style.display = 'block';
+        await fetchLeads();
+        document.getElementById('loading').style.display = 'none';
+    }
+
+    // --- 3. משיכת נתונים מ-Supabase ---
+    async function fetchLeads() {
+        const { data, error } = await supabase
+            .from('leads')
+            .select('*')
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            console.error('Error fetching leads:', error);
+            return;
+        }
+
+        renderTable(data);
+        updateStats(data);
+    }
+
+    function renderTable(leads) {
+        const tbody = document.getElementById('leadsTableBody');
+        tbody.innerHTML = '';
+
+        leads.forEach(lead => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${new Date(lead.created_at).toLocaleDateString('he-IL')}</td>
+                <td>${lead.name}</td>
+                <td>${lead.phone}</td>
+                <td>${lead.challenge || 'לא צוין'}</td>
+                <td id="ai-insight-${lead.id}"><span class="ai-badge">ממתין לניתוח</span></td>
+                <td><button class="btn-ai" onclick="window.analyzeLead('${lead.id}', '${lead.challenge}')">נתח עם Gemini</button></td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+
+    function updateStats(leads) {
+        document.getElementById('totalLeads').innerText = leads.length;
+        const today = new Date().toLocaleDateString();
+        const todayCount = leads.filter(l => new Date(l.created_at).toLocaleDateString() === today).length;
+        document.getElementById('todayLeads').innerText = todayCount;
+    }
+
+    // --- 4. חיבור ל-Gemini (החלק מה-AI Studio) ---
+    window.analyzeLead = async (id, challenge) => {
+        const cell = document.getElementById(`ai-insight-${id}`);
+        cell.innerText = "מנתח...";
+
+        try {
+            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+            const prompt = `אתה עוזר עסקי חכם. נתח את האתגר הבא של לקוח פוטנציאלי והצע פתרון אוטומציה קצר בשורה אחת: "${challenge}"`;
+            
+            const result = await model.generateContent(prompt);
+            const response = await result.response;
+            cell.innerText = response.text();
+        } catch (err) {
+            cell.innerText = "שגיאה בניתוח AI";
+            console.error(err);
+        }
+    }
+</script>
+
+</body>
+</html>
